@@ -1,0 +1,12 @@
+# Local/dev only. Single origin: Caddy serves the SPA (nginx) and proxies /api to
+# the backend. Mapped to host port 8082 in docker-compose.yml. In production this
+# whole container is gated out — the shared front-caddy fronts gktw.alpinepost.app
+# and reaches the `gktw-web` frontend directly.
+:80 {
+	handle /api/* {
+		reverse_proxy backend:3001
+	}
+	handle {
+		reverse_proxy frontend:80
+	}
+}

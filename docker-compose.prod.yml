@@ -1,0 +1,35 @@
+# Production override for the alpinepost.app ecosystem — gktw.
+# Same pattern as options-journal / fitness-tracker: repoint at pg-shared, retire
+# own Postgres + Caddy, attach to the shared edge/data networks. front-caddy
+# routes gktw.alpinepost.app -> the `gktw-web` alias below.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# Requires in .env:  PGSHARED_GKTW_PASSWORD
+#
+# On pg-shared this app's database is role `gktw` / db `gktw`
+# (see ecosystem-infra/pg-shared/init/01-databases.sql).
+services:
+  postgres:
+    profiles: ["localdb"]
+  caddy:
+    profiles: ["localdb"]
+
+  backend:
+    depends_on: !reset []
+    environment:
+      DATABASE_URL: postgres://gktw:${PGSHARED_GKTW_PASSWORD}@pg-shared:5432/gktw
+    networks:
+      - app-net
+      - data
+
+  frontend:
+    networks:
+      app-net: {}
+      edge:
+        aliases: [gktw-web]
+
+networks:
+  edge:
+    external: true
+  data:
+    external: true

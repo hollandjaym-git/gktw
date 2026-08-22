@@ -1,0 +1,81 @@
+# GKTW — standalone local/dev stack: own Postgres + own Caddy, unique host ports.
+# In production these two are gated out and replaced by the shared pg-shared +
+# front-caddy (see docker-compose.prod.yml).
+#
+# Host ports in the ecosystem: 80=options-journal, 8080=app-shell, 8081=fitness,
+# 8082=gktw. Backends: 3001=options-journal, 3101=app-shell, 3102=fitness,
+# 3103=gktw.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: gktw-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-gktw}
+      POSTGRES_USER: ${POSTGRES_USER:-gktw}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gktw_local}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gktw} -d ${POSTGRES_DB:-gktw}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    container_name: gktw-backend
+    restart: unless-stopped
+    environment:
+      PORT: 3001
+      DATABASE_URL: postgres://${POSTGRES_USER:-gktw}:${POSTGRES_PASSWORD:-gktw_local}@postgres:5432/${POSTGRES_DB:-gktw}
+      TZ: ${TZ:-America/Chicago}
+    ports:
+      - "3103:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - app-net
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        SOURCE_COMMIT: ${SOURCE_COMMIT:-}
+    container_name: gktw-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    networks:
+      - app-net
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: gktw-caddy
+    restart: unless-stopped
+    ports:
+      - "8082:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - app-net
+
+volumes:
+  postgres_data:
+    driver: local
+  caddy_data:
+    driver: local
+  caddy_config:
+    driver: local
+
+networks:
+  app-net:
+    driver: bridge
