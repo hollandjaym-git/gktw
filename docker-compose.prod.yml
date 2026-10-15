@@ -15,6 +15,9 @@ services:
     profiles: ["localdb"]
 
   backend:
+    # Production is reached only through front-caddy (edge network); never publish the API on the host —
+    # a published port is reachable on the droplet's raw IP and bypasses Cloudflare + Caddy.
+    ports: !reset []
     depends_on: !reset []
     environment:
       DATABASE_URL: postgres://gktw:${PGSHARED_GKTW_PASSWORD}@pg-shared:5432/gktw
