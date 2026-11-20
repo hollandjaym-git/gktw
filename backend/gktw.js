@@ -257,7 +257,7 @@ const ADMIN_MAX_FAILS_TOTAL = 12;
 const adminFails = new Map(); // client key -> [timestamps]
 let adminFailsAll = [];
 const prune = (arr, now) => arr.filter((t) => now - t < ADMIN_WINDOW_MS);
-const clientKey = (req) => String(req.headers["cf-connecting-ip"] || req.ip || "unknown");
+const clientKey = (req) => String(req.ip || "unknown"); // real client via nginx (X-Forwarded-For), see frontend/nginx.conf
 // Returns true when the caller may proceed; otherwise sends the error response and returns false.
 function adminGate(req, res) {
   const now = Date.now();
