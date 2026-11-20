@@ -41,6 +41,8 @@ services:
       PORT: 3001
       DATABASE_URL: postgres://${POSTGRES_USER:-gktw}:${POSTGRES_PASSWORD:-gktw_local}@postgres:5432/${POSTGRES_DB:-gktw}
       TZ: ${TZ:-America/Chicago}
+      GKTW_ADMIN_PIN: ${GKTW_ADMIN_PIN:-}
+      GKTW_CORS_ORIGINS: ${GKTW_CORS_ORIGINS:-}
     ports:
       - "3103:3001"
     depends_on:

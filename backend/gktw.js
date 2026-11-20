@@ -242,7 +242,40 @@ async function seedIfEmpty(query) {
 // trips; each wave's people are packed by assignment-group into vans of
 // `van_capacity`, largest group first. A wave needing more than 2 vans means
 // one of the two real vans is making a second trip — labeled Van 3, etc.
-const ADMIN_PIN = "4277";
+// Admin PIN comes from the environment (GKTW_ADMIN_PIN), never the source. Unset => admin writes are disabled.
+const crypto = require("crypto");
+const ADMIN_PIN = process.env.GKTW_ADMIN_PIN || "";
+if (!ADMIN_PIN) console.warn("[gktw] GKTW_ADMIN_PIN is not set — admin actions are disabled");
+const sha = (s) => crypto.createHash("sha256").update(String(s)).digest();
+const pinMatches = (given) => !!ADMIN_PIN && crypto.timingSafeEqual(sha(given ?? ""), sha(ADMIN_PIN));
+
+// Brute-force guard for the admin PIN: only a handful of wrong guesses per client and in total per window.
+// In-memory is enough (single process; a restart just resets the counters).
+const ADMIN_WINDOW_MS = 15 * 60 * 1000;
+const ADMIN_MAX_FAILS_PER_CLIENT = 5;
+const ADMIN_MAX_FAILS_TOTAL = 12;
+const adminFails = new Map(); // client key -> [timestamps]
+let adminFailsAll = [];
+const prune = (arr, now) => arr.filter((t) => now - t < ADMIN_WINDOW_MS);
+const clientKey = (req) => String(req.headers["cf-connecting-ip"] || req.ip || "unknown");
+// Returns true when the caller may proceed; otherwise sends the error response and returns false.
+function adminGate(req, res) {
+  const now = Date.now();
+  const key = clientKey(req);
+  const mine = prune(adminFails.get(key) || [], now);
+  adminFailsAll = prune(adminFailsAll, now);
+  if (mine.length >= ADMIN_MAX_FAILS_PER_CLIENT || adminFailsAll.length >= ADMIN_MAX_FAILS_TOTAL) {
+    res.status(429).json({ error: "Too many wrong PINs. Try again in 15 minutes." });
+    return false;
+  }
+  if (!pinMatches(req.body?.pin)) {
+    mine.push(now); adminFails.set(key, mine); adminFailsAll.push(now);
+    res.status(403).json({ error: "Invalid PIN" });
+    return false;
+  }
+  adminFails.delete(key);
+  return true;
+}
 const NOON_MIN = 12 * 60;
 const DEFAULT_TOLERANCE = 30;
 const DEFAULT_CAPACITY = 15;
@@ -650,12 +683,20 @@ module.exports = function registerGktw(app, query) {
   });
 
   app.post("/api/gktw/admin-check", (req, res) => {
-    res.json({ ok: req.body?.pin === ADMIN_PIN });
+    const now = Date.now();
+    const mine = prune(adminFails.get(clientKey(req)) || [], now);
+    adminFailsAll = prune(adminFailsAll, now);
+    if (mine.length >= ADMIN_MAX_FAILS_PER_CLIENT || adminFailsAll.length >= ADMIN_MAX_FAILS_TOTAL) {
+      return res.status(429).json({ ok: false, error: "Too many wrong PINs. Try again in 15 minutes." });
+    }
+    if (pinMatches(req.body?.pin)) { adminFails.delete(clientKey(req)); return res.json({ ok: true }); }
+    mine.push(now); adminFails.set(clientKey(req), mine); adminFailsAll.push(now);
+    res.json({ ok: false });
   });
 
   app.post("/api/gktw/van-settings", async (req, res) => {
     try {
-      if (req.body?.pin !== ADMIN_PIN) return res.status(403).json({ error: "Invalid PIN" });
+      if (!adminGate(req, res)) return;
       const tol = parseInt(req.body?.tolerance_minutes);
       const cap = parseInt(req.body?.van_capacity);
       if (!(tol > 0) || !(cap > 0)) return res.status(400).json({ error: "tolerance_minutes and van_capacity must be positive numbers" });
@@ -666,7 +707,7 @@ module.exports = function registerGktw(app, query) {
 
   app.post("/api/gktw/van-override", async (req, res) => {
     try {
-      if (req.body?.pin !== ADMIN_PIN) return res.status(403).json({ error: "Invalid PIN" });
+      if (!adminGate(req, res)) return;
       const { shift_date, period, direction, assignment, van_number } = req.body || {};
       if (!shift_date || !period || !direction || !assignment) {
         return res.status(400).json({ error: "shift_date, period, direction, assignment required" });
@@ -692,7 +733,7 @@ module.exports = function registerGktw(app, query) {
   // leave/pickup time. anchor_minutes identifies the wave within its section.
   app.post("/api/gktw/van-time", async (req, res) => {
     try {
-      if (req.body?.pin !== ADMIN_PIN) return res.status(403).json({ error: "Invalid PIN" });
+      if (!adminGate(req, res)) return;
       const { shift_date, period, direction } = req.body || {};
       const anchor = parseInt(req.body?.anchor_minutes);
       if (!shift_date || !period || !direction || !Number.isInteger(anchor)) {

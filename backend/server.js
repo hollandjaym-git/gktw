@@ -24,8 +24,12 @@ const query = (text, params) => pool.query(text, params);
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-app.use(cors());
-app.use(express.json());
+// Same-origin in production (front-caddy -> nginx -> here), so only the app's own origins may call cross-origin.
+const CORS_ALLOWED = new Set((process.env.GKTW_CORS_ORIGINS || "https://gktw.alpinepost.app,http://localhost:8082,http://localhost:5173").split(",").map((x) => x.trim()).filter(Boolean));
+app.disable("x-powered-by");
+app.set("trust proxy", 1);
+app.use(cors({ origin: (origin, cb) => cb(null, !origin || CORS_ALLOWED.has(origin)) }));
+app.use(express.json({ limit: "100kb" }));
 
 app.get("/api/health", async (req, res) => {
   try {
