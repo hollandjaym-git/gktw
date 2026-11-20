@@ -1,4 +1,6 @@
 FROM node:22-alpine
+# Pull Alpine security fixes that the base image has not picked up yet (zlib/openssl/musl/curl).
+RUN apk upgrade --no-cache
 
 WORKDIR /app
 
